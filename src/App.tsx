@@ -3,7 +3,6 @@ import * as React from 'react'
 import Editor, { Monaco, OnMount } from '@monaco-editor/react'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-// Adjust path if needed
 import { debounce } from 'es-toolkit'
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import DraculaTheme from 'monaco-themes/themes/Dracula.json'
