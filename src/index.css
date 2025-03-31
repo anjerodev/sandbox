@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-neutral-800;
+}
+
+/* Style for the hovered line highlight in Monaco Editor */
+.line-highlight-hover {
+  background-color: rgba(
+    167,
+    139,
+    250,
+    0.2
+  ); /* Example: purple-400 with 20% opacity */
+  /* You could add a border or other effects */
+  border-left: 3px solid rgba(167, 139, 250, 0.6);
+  box-sizing: border-box; /* Important if using borders */
+}
