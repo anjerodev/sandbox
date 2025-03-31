@@ -50,7 +50,7 @@ const HOVER_HIGHLIGHT_CLASS = 'line-highlight-hover'
 function App() {
   const [code, setCode] = React.useState(defaultValue)
   const [output, setOutput] = React.useState<ExecutionEvent[]>([])
-  const [editorTheme, setEditorTheme] = React.useState('github-dark')
+  const [editorTheme, _setEditorTheme] = React.useState('github-dark')
 
   // --- Refs for Editor Interaction ---
   const editorRef = React.useRef<monaco.editor.IStandaloneCodeEditor | null>(
@@ -61,7 +61,7 @@ function App() {
     React.useRef<monaco.editor.IEditorDecorationsCollection | null>(null)
   // --- End Refs ---
 
-  const handlePaneChange = (sizes: number[]) => {
+  const handlePaneChange = (_sizes: number[]) => {
     editorRef.current?.layout()
   }
 
