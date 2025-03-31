@@ -1,12 +1,12 @@
 import * as React from 'react'
 
+import DraculaTheme from '@/themes/dracula.json'
+import GithubDark from '@/themes/github-dark.json'
 import Editor, { Monaco, OnMount } from '@monaco-editor/react'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { debounce } from 'es-toolkit'
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
-import DraculaTheme from 'monaco-themes/themes/Dracula.json'
-import GithubDark from 'monaco-themes/themes/Github Dark.json'
 
 import { EventItem } from './components/EventItem'
 import { ExecutionEvent, createCodeWorker } from './utils/workerUtils'
