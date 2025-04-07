@@ -5,44 +5,31 @@ import { ExecutionEvent } from '@/lib/utils/workerUtils'
 import { applyTheme } from './apply-theme'
 import { createIndexDBStore } from './db'
 
-const initialInput = `function sum(a, b) {
-    return a + b;
-  }
-  sum(2, 3);
+const initialInput = `// Welcome to the Sandbox!
+// Here's a simple example to get you started:
 
-  console.log("Mid log");
+function greet(name: string) {
+  return "Hello, " + name + "!";
+}
 
-  const isAnagram = (str1, str2) => {
-    const normalize = (str) =>
-      str
-        .toLowerCase()
-        .replace(/[^a-z0-9]/gi, "")
-        .split("")
-        .sort()
-        .join("");
-    return normalize(str1) === normalize(str2);
-  };
+// Try calling the function directly
+greet("World");
 
-  const nullValue = null;
-  let undefinedValue = undefined;
-  const zeroValue = 0;
-  const emptyString = "";
+// You can also use different console methods:
+console.log("Try modifying the code and see what happens!");
+console.info(
+  "Tip: Hover over an output on the right side and it will highlight the corresponding line.",
+);
 
-  isAnagram("iceman", "cinema");
+    console.warn(
 
-  function concat<N extends number[], S extends string[]>(
-    nums: [...N],
-    strs: [...S]
-  ): [...N, ...S] {
-    return [...nums, ...strs];
-  }
+      
+      "It seems like the code is not formatted properly, use the format button.",
+    );
 
-  concat([1, 2, 3], ["hello world"]); // This is the expression statement
-
-  console.log("Hello World");
-  console.error("An error occurred!");
-  console.warn('This is a warning!');
-  console.info("This is an info message");`
+/**
+ * You can customize the behavior and appearance from the settings.
+ */`
 
 type StoreState = {
   input: string

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { SourceMapConsumer } from 'source-map-js'
 import ts from 'typescript'
 
@@ -5,7 +6,7 @@ interface ExecutionEvent {
   line?: number
   type: 'result' | 'log'
   level?: string // 'log', 'warn', 'error', etc. for logs
-  data: any
+  data: unknown
 }
 
 const originalConsole = {
@@ -21,8 +22,9 @@ const originalConsole = {
 const STACK_LINE_REGEX =
   /(?:at |@|eval at .*?\()(?:\S+ \()?(?:.*[\\/])?([\w.-]+|<anonymous>):(\d+):(\d+)\)?/
 
-const workerDebugLog = (...args: any[]) => {
-  if (import.meta.env.DEV) originalConsole.log('👀 [WORKER]', ...args)
+const workerDebugLog = (..._args: any[]) => {
+  // if (import.meta.env.DEV) originalConsole.log('👀 [WORKER]', ...args)
+  return
 }
 
 async function parseErrorStack(
@@ -214,7 +216,7 @@ function sanitizeForCloning(
       try {
         // Use toString() as a fallback, might provide useful info
         const name = value.constructor?.name || 'Object'
-        let str = value.toString()
+        const str = value.toString()
         // Avoid overly verbose default toString like "[object Object]"
         if (str === '[object Object]' || str === `[object ${name}]`) {
           return `[${name}]`
@@ -389,7 +391,7 @@ self.onmessage = async (e: MessageEvent<{ code: string }>) => {
 
     // 3. *** Instrument JS Code (Revised Logic) ***
     let instrumentedJs = ''
-    let didInstrument = false // Flag if any instrumentation occured
+    let didInstrument = false // Flag if any instrumentation occurred
     try {
       workerDebugLog('Parsing generated JS for instrumentation...')
       const sourceFile = ts.createSourceFile(
@@ -429,7 +431,10 @@ self.onmessage = async (e: MessageEvent<{ code: string }>) => {
               const methodName = signature.name.text
               // Check if it's one of the methods we want to capture
               if (
-                originalConsole.hasOwnProperty(methodName) &&
+                Object.prototype.hasOwnProperty.call(
+                  originalConsole,
+                  methodName
+                ) &&
                 methodName !== 'clear'
               ) {
                 level = methodName
@@ -650,7 +655,7 @@ self.addEventListener('unhandledrejection', async (event) => {
     event.reason
   )
 
-  let sanitizedReason = sanitizeForCloning(event.reason)
+  const sanitizedReason = sanitizeForCloning(event.reason)
   let errorMessage: string
   let errorDetails: any = null // Use this for structured (sanitized) data if not Error
 

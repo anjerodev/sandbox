@@ -21,15 +21,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip'
 
 export const SettingsDialog = () => {
   const theme = useTheme()
 
   return (
     <DialogTrigger>
-      <Button size="icon" variant="ghost" aria-label="settings">
-        <Settings2Icon />
-      </Button>
+      <TooltipTrigger>
+        <Button size="icon" variant="ghost" aria-label="settings">
+          <Settings2Icon />
+        </Button>
+        <Tooltip placement="right">Settings</Tooltip>
+      </TooltipTrigger>
       <DialogOverlay isDismissable={false}>
         <DialogContent className="md:max-w-xl" closeButton={false}>
           {({ close }) => (
@@ -65,7 +69,7 @@ export const SettingsDialog = () => {
                 </Select>
               </div>
               <DialogFooter>
-                <Button onPress={close} type="submit">
+                <Button onPress={close} type="button">
                   Close
                 </Button>
               </DialogFooter>

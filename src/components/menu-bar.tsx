@@ -17,10 +17,7 @@ export const MenuBar = () => {
         </TooltipTrigger>
       </section>
       <section className="mt-auto">
-        <TooltipTrigger>
-          <SettingsDialog />
-          <Tooltip placement="right">Settings</Tooltip>
-        </TooltipTrigger>
+        <SettingsDialog />
       </section>
     </div>
   )

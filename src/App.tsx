@@ -53,7 +53,7 @@ function App() {
             </Allotment.Pane>
 
             {/* Pane 2: Debug Console Pane */}
-            <Allotment.Pane minSize={150} preferredSize={'40%'}>
+            <Allotment.Pane minSize={150} preferredSize={'30%'}>
               <DebugConsole />
             </Allotment.Pane>
           </Allotment>
