@@ -1,7 +1,7 @@
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 
-import { useMounted } from '@/lib/store'
+import { useHydrated, useMounted } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 import { DebugConsole } from '@/components/debug-console'
@@ -9,8 +9,19 @@ import { Editor } from '@/components/editor'
 import { EditorProvider } from '@/components/editor.provider'
 import { MenuBar } from '@/components/menu-bar'
 
+import { LoadingSpinner } from './components/loading-spinner'
+
 function App() {
   const isMounted = useMounted()
+  const isHydrated = useHydrated()
+
+  if (!isHydrated) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -21,7 +32,7 @@ function App() {
           isMounted && 'hidden'
         )}
       >
-        <div className="text-center">Loading...</div>
+        <LoadingSpinner />
       </div>
       {/* Main UI */}
       <EditorProvider>

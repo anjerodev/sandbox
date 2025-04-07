@@ -1,9 +1,9 @@
 import { ThemeId } from '@/themes'
-import { create } from 'zustand'
 
 import { ExecutionEvent } from '@/lib/utils/workerUtils'
 
 import { applyTheme } from './apply-theme'
+import { createIndexDBStore } from './db'
 
 const initialInput = `function sum(a, b) {
     return a + b;
@@ -49,19 +49,31 @@ type StoreState = {
   output: ExecutionEvent[]
   theme: ThemeId
   mounted: boolean
+  hydrated: boolean
+  setHydrated: (value: boolean) => void
 }
 
-const stateStore = create<StoreState>(() => ({
-  input: initialInput,
-  output: [],
-  theme: 'vs-dark' as const,
-  mounted: false,
-}))
+const stateStore = createIndexDBStore<StoreState>({
+  name: 'state',
+  handler: (set) => ({
+    input: initialInput,
+    output: [],
+    theme: 'vs-dark',
+    mounted: false,
+    hydrated: false,
+    setHydrated: (value: boolean) => set({ hydrated: value }),
+  }),
+  fieldsToPersist: ['input', 'theme', 'output'],
+  onHydrated: (state) => {
+    state.setHydrated(true)
+  },
+})
 
 export const useInput = () => stateStore((state) => state.input)
 export const useOutput = () => stateStore((state) => state.output)
 export const useTheme = () => stateStore((state) => state.theme)
 export const useMounted = () => stateStore((state) => state.mounted)
+export const useHydrated = () => stateStore((state) => state.hydrated)
 
 export const setInput = (input: string) => stateStore.setState({ input })
 export const setOutput = (output: ExecutionEvent[]) =>

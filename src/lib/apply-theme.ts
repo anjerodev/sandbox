@@ -1,6 +1,7 @@
 import { FALLBACK_THEME, type ThemeId, themes } from '@/themes'
 
 export function applyTheme(themeId: ThemeId) {
+  console.log({ themeId })
   // Fallback to default vs-dark theme
   const theme = themes[themeId]?.json ?? FALLBACK_THEME
   const colors = theme?.colors ?? FALLBACK_THEME.colors
