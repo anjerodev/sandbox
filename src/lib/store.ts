@@ -84,3 +84,22 @@ export const setTheme = (theme: ThemeId) => {
 }
 
 export const mount = () => stateStore.setState(() => ({ mounted: true }))
+
+export function alterInput(callback: (input: string) => string): void
+export function alterInput(
+  callback: (input: string) => Promise<string>
+): Promise<void>
+export function alterInput(
+  callback: (input: string) => string | Promise<string>
+) {
+  const { input } = stateStore.getState()
+  const result = callback(input)
+
+  if (result instanceof Promise) {
+    return result.then((newInput) => {
+      stateStore.setState({ input: newInput })
+    })
+  }
+
+  stateStore.setState({ input: result })
+}
