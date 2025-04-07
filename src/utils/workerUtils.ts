@@ -2,7 +2,7 @@ export interface ExecutionEvent {
   line?: number;
   type: "result" | "log";
   level?: string; // 'log', 'warn', 'error', etc. for logs
-  data: any;
+  data: unknown;
 }
 
 export function createCodeWorker(

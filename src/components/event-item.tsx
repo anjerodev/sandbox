@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 
 // Helper function to check if a value is a primitive type
-const isPrimitive = (value: any): boolean => {
+const isPrimitive = (value: unknown): boolean => {
   return (
     value === null || (typeof value !== 'object' && typeof value !== 'function')
   )
@@ -20,8 +20,8 @@ const MAX_INLINE_ARRAY_LENGTH = 10 // Max items to display inline
 const MAX_INLINE_STRING_LENGTH = 50 // Max length for individual strings within inline array
 
 interface EventItemProps extends ExecutionEvent {
-  onMouseEnter: (line: number | undefined) => void
-  onMouseLeave: () => void
+  onMouseEnter?: (line: number | undefined) => void
+  onMouseLeave?: () => void
 }
 
 // Refactored EventItem Component
@@ -29,40 +29,37 @@ export const EventItem = (props: EventItemProps) => {
   const { type, data, line, level, onMouseEnter, onMouseLeave } = props
 
   let IconComponent: React.ElementType = MessageSquare
-  let iconColor = 'text-neutral-400' // Default icon color
-  let textColor = 'text-neutral-200' // Default text color
-  let borderColor = 'border-neutral-600' // Default border color for log levels
+  let iconColor = 'text-(--debug-neutral)' // Default icon color
+  let textColor = 'text-(--debug-fg)' // Default text color
+  let borderColor = 'text-(--debug-neutral)' // Default border color for log levels
 
   if (type === 'result') {
     IconComponent = TerminalSquare
-    iconColor = 'text-blue-400'
-    borderColor = 'border-blue-600'
-    textColor = 'text-blue-100' // Slightly different color for result data
+    iconColor = 'text-(--log-log)'
+    borderColor = 'text-(--log-log)'
+    textColor = 'text-(--log-log)'
   } else if (type === 'log') {
     switch (level?.toLowerCase()) {
       case 'warn':
         IconComponent = AlertTriangle
-        iconColor = 'text-yellow-400'
-        borderColor = 'border-yellow-600'
-        textColor = 'text-yellow-100'
+        iconColor = 'text-(--log-warn)'
+        borderColor = 'text-(--log-warn)'
+        textColor = 'text-(--log-warn)'
         break
       case 'error':
         IconComponent = AlertOctagon
-        iconColor = 'text-red-400'
-        borderColor = 'border-red-600'
-        textColor = 'text-red-100'
+        iconColor = 'text-(--log-error)'
+        borderColor = 'text-(--log-error)'
+        textColor = 'text-(--log-error)'
         break
       case 'info':
         IconComponent = Info
-        iconColor = 'text-cyan-400' // Or keep neutral
-        borderColor = 'border-cyan-600'
-        textColor = 'text-cyan-100'
+        iconColor = 'text-(--log-info)'
+        borderColor = 'text-(--log-info)'
+        textColor = 'text-(--log-info)'
         break
       default: // 'log' or unknown level
-        IconComponent = MessageSquare // Keep default log icon
-        iconColor = 'text-neutral-400'
-        borderColor = 'border-neutral-600'
-        textColor = 'text-neutral-200' // Use default text color
+        // Keep defaults
         break
     }
   }
@@ -101,20 +98,16 @@ export const EventItem = (props: EventItemProps) => {
       if (isSimple && isShort && !containsLongString && data.length > 0) {
         return (
           <span className={`text-sm ${textColor} font-mono break-words`}>
-            <span className="text-neutral-500">[</span>
+            <span>[</span>
             {data.map((item, index) => (
               <React.Fragment key={index}>
                 <span className="mx-px">{JSON.stringify(item)}</span>
-                {index < data.length - 1 && (
-                  <span className="text-neutral-500">, </span>
-                )}
+                {index < data.length - 1 && <span>, </span>}
               </React.Fragment>
             ))}
-            <span className="text-neutral-500">]</span>
+            <span>]</span>
             {data.length > 0 && (
-              <span className="ml-1.5 text-xs text-neutral-500">
-                ({data.length})
-              </span>
+              <span className="ml-1.5 text-xs">({data.length})</span>
             )}
           </span>
         )
@@ -142,7 +135,7 @@ export const EventItem = (props: EventItemProps) => {
     } else {
       return (
         <span
-          className={`text-sm ${textColor} font-mono break-words whitespace-pre-wrap text-yellow-600`}
+          className={`font-mono text-sm break-words whitespace-pre-wrap text-(--debug-primitive-fg)`}
         >
           {/* Render raw string data directly; stringify others */}
           {typeof data === 'string' ? data : JSON.stringify(data)}
@@ -154,8 +147,8 @@ export const EventItem = (props: EventItemProps) => {
 
   return (
     <div
-      className={`flex items-start space-x-3 border-l-4 px-4 py-2.5 font-mono ${borderColor} cursor-default bg-neutral-900 shadow-sm`}
-      onMouseEnter={() => onMouseEnter(line)}
+      className={`flex items-start space-x-3 border-l-4 px-4 py-2.5 font-mono ${borderColor} cursor-default`}
+      onMouseEnter={() => onMouseEnter?.(line)}
       onMouseLeave={onMouseLeave}
     >
       <IconComponent size={18} className={iconColor} aria-hidden="true" />
@@ -163,7 +156,7 @@ export const EventItem = (props: EventItemProps) => {
       <div className="min-w-0 flex-1 leading-1">{renderFormattedData()}</div>
 
       {line !== undefined && (
-        <span className="text-end text-xs text-neutral-500 select-none">
+        <span className="text-end text-xs text-(--debug-neutral) select-none">
           L{line}
         </span>
       )}
