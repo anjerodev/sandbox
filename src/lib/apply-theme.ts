@@ -8,25 +8,22 @@ export function applyTheme(themeId: ThemeId) {
   const styles = {
     background: colors['editor.background'],
     foreground: colors['editor.foreground'],
-
     primary: colors['button.background'],
     'primary-foreground': colors['button.foreground'],
-
-    card: colors['menu.background'],
-    'card-foreground': colors['menu.foreground'],
-    popover: colors['dropdown.background'],
-    'popover-foreground': colors['dropdown.foreground'],
-
-    border: colors['activityBar.border'] ?? 'transparent',
-
-    sidebar: colors['sideBar.background'],
-    'sidebar-foreground': colors['editor.foreground'],
-
     muted: colors['terminal.inactiveSelectionBackground'],
     accent: colors['activityBarBadge.background'],
     'accent-foreground': colors['activityBarBadge.foreground'],
     destructive: colors['statusBarItem.errorBackground'],
     'destructive-foreground': colors['statusBarItem.errorForeground'],
+    border: colors['activityBar.border'] ?? 'transparent',
+
+    // Surfaces
+    card: colors['menu.background'],
+    'card-foreground': colors['menu.foreground'],
+    popover: colors['dropdown.background'],
+    'popover-foreground': colors['dropdown.foreground'],
+    sidebar: colors['sideBar.background'],
+    'sidebar-foreground': colors['editor.foreground'],
 
     // Input
     input: colors['input.background'],
@@ -41,7 +38,7 @@ export function applyTheme(themeId: ThemeId) {
     'debug-bg': colors['activityBar.background'],
     'debug-primitive-fg': colors['textPreformat.foreground'],
 
-    // Log styles
+    // Logs
     'log-log': colors['terminal.ansiGreen'],
     'log-info': colors['terminal.ansiBlue'],
     'log-error': colors['terminal.ansiRed'],
