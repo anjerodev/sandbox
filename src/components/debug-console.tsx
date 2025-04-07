@@ -9,10 +9,10 @@ export const DebugConsole = () => {
   const output = useOutput()
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-(--debug-bg)">
+    <div className="bg-background flex h-full flex-col overflow-y-auto">
       <div className="space-y-1">
         {output.length === 0 && (
-          <div className="py-10 text-center text-(--debug-fg) opacity-70">
+          <div className="text-foreground py-10 text-center opacity-70">
             No output yet...
           </div>
         )}

@@ -1,13 +1,13 @@
 import * as React from 'react'
 
 import { ThemeId, themes } from '@/themes'
-import { createCodeWorker } from '@/utils/workerUtils'
 import { Editor as MonancoEditor, type OnMount } from '@monaco-editor/react'
 import { debounce } from 'es-toolkit'
 
 import { applyTheme } from '@/lib/apply-theme'
-import { setInput, setOutput, useInput, useTheme } from '@/lib/store'
+import { mount, setInput, setOutput, useInput, useTheme } from '@/lib/store'
 import { loadTokenizer } from '@/lib/tokenizer'
+import { createCodeWorker } from '@/lib/utils/workerUtils'
 
 import { useEditor } from '@/hooks/use-editor'
 
@@ -47,6 +47,7 @@ export const Editor = () => {
 
         monaco.editor.setTheme(theme) // Apply initial theme to monaco editor
         applyTheme(theme) // Apply theme to rest of the UI
+        mount() // Flag to indicate the editor is ready
       })
       .catch((error) => {
         console.error('Error loading tokenizer:', error)
@@ -71,11 +72,16 @@ export const Editor = () => {
         scrollBeyondLastLine: false,
         automaticLayout: true, // ESSENTIAL for resizing
         overviewRulerLanes: 0,
+        padding: {
+          top: 10,
+          bottom: 10,
+        },
       }}
       value={code}
       onChange={(v) => debouncedHandleCodeChange(v ?? '')}
       onMount={handleEditorDidMount}
       className="[&_.highlighted]:bg-(--highlight-bg)"
+      loading=""
     />
   )
 }

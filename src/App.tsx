@@ -1,15 +1,38 @@
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 
+import { useMounted } from '@/lib/store'
+import { cn } from '@/lib/utils'
+
 import { DebugConsole } from '@/components/debug-console'
 import { Editor } from '@/components/editor'
 import { EditorProvider } from '@/components/editor.provider'
+import { MenuBar } from '@/components/menu-bar'
 
 function App() {
+  const isMounted = useMounted()
+
   return (
-    <div className="app flex h-screen flex-col">
+    <div className="flex h-screen flex-col">
+      {/* Loading UI */}
+      <div
+        className={cn(
+          'text-foreground grid flex-grow place-items-center',
+          isMounted && 'hidden'
+        )}
+      >
+        <div className="text-center">Loading...</div>
+      </div>
+      {/* Main UI */}
       <EditorProvider>
-        <div className="flex-grow overflow-hidden">
+        <div
+          className={cn(
+            'flex flex-grow overflow-hidden',
+            !isMounted && 'hidden'
+          )}
+        >
+          <MenuBar />
+
           <Allotment>
             {/* Pane 1: Editor Pane*/}
             <Allotment.Pane minSize={200}>

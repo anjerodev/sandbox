@@ -1,6 +1,5 @@
 import * as React from 'react'
 
-import { ExecutionEvent } from '@/utils/workerUtils'
 import {
   AlertOctagon,
   AlertTriangle,
@@ -8,6 +7,8 @@ import {
   MessageSquare,
   TerminalSquare,
 } from 'lucide-react'
+
+import { ExecutionEvent } from '@/lib/utils/workerUtils'
 
 // Helper function to check if a value is a primitive type
 const isPrimitive = (value: unknown): boolean => {

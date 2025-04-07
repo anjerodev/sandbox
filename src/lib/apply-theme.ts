@@ -1,25 +1,36 @@
 import { FALLBACK_THEME, type ThemeId, themes } from '@/themes'
 
 export function applyTheme(themeId: ThemeId) {
-  document.documentElement.setAttribute('data-theme', themeId)
-
   // Fallback to default vs-dark theme
   const theme = themes[themeId]?.json ?? FALLBACK_THEME
   const colors = theme?.colors ?? FALLBACK_THEME.colors
 
-  // Remove existing theme style element if it exists
-  const oldStyle = document.getElementById('theme-styles')
-  if (oldStyle) {
-    oldStyle.remove()
-  }
-
-  // Create new style element
-  const styleElement = document.createElement('style')
-  styleElement.id = 'theme-styles'
-
   const styles = {
-    'app-bg': colors['editor.background'],
-    'app-fg': colors['editor.foreground'],
+    background: colors['editor.background'],
+    foreground: colors['editor.foreground'],
+
+    primary: colors['button.background'],
+    'primary-foreground': colors['button.foreground'],
+
+    card: colors['menu.background'],
+    'card-foreground': colors['menu.foreground'],
+    popover: colors['dropdown.background'],
+    'popover-foreground': colors['dropdown.foreground'],
+
+    border: colors['activityBar.border'] ?? 'transparent',
+
+    sidebar: colors['sideBar.background'],
+    'sidebar-foreground': colors['editor.foreground'],
+
+    muted: colors['terminal.inactiveSelectionBackground'],
+    accent: colors['activityBarBadge.background'],
+    'accent-foreground': colors['activityBarBadge.foreground'],
+    destructive: colors['statusBarItem.errorBackground'],
+    'destructive-foreground': colors['statusBarItem.errorForeground'],
+
+    // Input
+    input: colors['input.background'],
+    'input-foreground': colors['input.foreground'],
 
     // Highlighted lines
     'highlight-bg': colors['editor.selectionHighlightBackground'],
@@ -37,13 +48,9 @@ export function applyTheme(themeId: ThemeId) {
     'log-warn': colors['terminal.ansiYellow'],
   }
 
-  let cssText = `[data-theme="${themeId}"] {`
   for (const [cssVar, value] of Object.entries(styles)) {
     if (value) {
-      cssText += `--${cssVar}: ${value};`
+      document.documentElement.style.setProperty(`--${cssVar}`, value)
     }
   }
-  cssText += '}'
-  styleElement.textContent = cssText
-  document.head.appendChild(styleElement)
 }
