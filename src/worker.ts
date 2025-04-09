@@ -23,7 +23,7 @@ const STACK_LINE_REGEX =
   /(?:at |@|eval at .*?\()(?:\S+ \()?(?:.*[\\/])?([\w.-]+|<anonymous>):(\d+):(\d+)\)?/
 
 const workerDebugLog = (..._args: any[]) => {
-  // if (import.meta.env.DEV) originalConsole.log('👀 [WORKER]', ...args)
+  // if (import.meta.env.DEV) originalConsole.log('👀 [WORKER]', ..._args)
   return
 }
 
@@ -117,19 +117,45 @@ async function parseErrorStack(
   }
 }
 
-// --- Texts for the helper functions to inject ---
 const reportResultHelperText = `
-function __reportResult(value, line) {
-  reportEvent({ type: 'result', line: line, data: value });
-  return value; // Return value for potential chaining
+function __reportResult(value, line, reportEventFn, flushFn) {
+ flushFn(reportEventFn); // Flush logs before reporting result
+ reportEventFn({ type: 'result', line: line, data: value });
+ return value; // Return value for potential chaining
 }`
 
-const reportLogHelperText = `
-function __reportLog(level, line, args) {
-  // console.origLog('Reporting log:', level, line, args); // Debugging the helper itself
-  reportEvent({ type: 'log', level: level, line: line, data: args });
-  // console.log itself returns undefined, so no need to return anything meaningful
-}`
+const logAccumulatorHelpersText = `
+let __pendingLogs = new Map();
+
+function __accumulateLog(level, line, args) {
+  if (!__pendingLogs.has(line)) {
+    __pendingLogs.set(line, { level: level, firstCallArgs: args, allArgs: [args] });
+  } else {
+    const entry = __pendingLogs.get(line);
+    // Keep the level from the first call on that line
+    entry.allArgs.push(args);
+  }
+  // We don't return anything, mirroring console.log
+}
+
+
+// Flushes accumulated logs into events (using the passed-in reportEvent)
+function __flushLogs(reportEventFn) {
+  // workerDebugLog('Flushing accumulated logs...', __pendingLogs.size); // Worker-side debug
+  for (const [line, { level, allArgs }] of __pendingLogs.entries()) {
+    // workerDebugLog('Flushing line:', line, 'Level:', level, 'Args batches:', allArgs.length);
+    reportEventFn({
+      type: 'log',
+      level: level,
+      line: line,
+      // Send all collected argument arrays for this line
+      // The receiving side will need to handle displaying this potentially nested array
+      data: allArgs
+    });
+  }
+  __pendingLogs.clear();
+}
+`
 
 const MAX_DEPTH = 10 // Prevent infinite recursion in deep/circular structures
 const MAX_ARRAY_LENGTH = 100 // Limit array elements shown
@@ -250,48 +276,216 @@ function sanitizeForCloning(
   }
 }
 
+// Helper: Transpile the TS code and extract the source map.
+function transpileCode(code: string): {
+  jsCode: string
+  sourceMapConsumer: SourceMapConsumer | null
+  diagnostics: readonly ts.Diagnostic[] | undefined
+} {
+  // Transpile and collect possible diagnostics
+  const transpileResult = ts.transpileModule(code, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ESNext,
+      inlineSourceMap: true,
+      inlineSources: true,
+      checkJs: false,
+      suppressOutputPathCheck: true,
+      skipLibCheck: true,
+    },
+    reportDiagnostics: true,
+  })
+  // (Diagnostics are reported later in onmessage)
+  let jsCode = transpileResult.outputText
+  let sourceMapConsumer: SourceMapConsumer | null = null
+  const sourceMapMatch = jsCode.match(
+    /\/\/# sourceMappingURL=data:application\/json;base64,(.*)/
+  )
+  if (sourceMapMatch?.[1]) {
+    try {
+      sourceMapConsumer = new SourceMapConsumer(
+        JSON.parse(atob(sourceMapMatch[1]))
+      )
+      jsCode = jsCode.substring(0, sourceMapMatch.index).trimEnd()
+    } catch (mapError) {
+      workerDebugLog('Source map parse error:', mapError)
+    }
+  } else {
+    workerDebugLog('Source map not found.')
+  }
+  return { jsCode, sourceMapConsumer, diagnostics: transpileResult.diagnostics }
+}
+
+// Helper: Perform the transformation/instrumentation on the generated code.
+function transformCode(
+  jsCode: string,
+  sourceMapConsumer: SourceMapConsumer | null
+): { transformedJsCode: string; instrumentationHelpersNeeded: boolean } {
+  const sourceFile = ts.createSourceFile(
+    '__temp_module__.js',
+    jsCode,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.JS
+  )
+  let instrumentationHelpersNeeded = false
+  const transformerFactory: ts.TransformerFactory<ts.SourceFile> = (
+    context
+  ) => {
+    const visitor: ts.Visitor = (node: ts.Node): ts.Node => {
+      // Instrument console calls.
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === 'console'
+      ) {
+        const methodName = node.expression.name.text
+        if (
+          Object.prototype.hasOwnProperty.call(originalConsole, methodName) &&
+          methodName !== 'clear'
+        ) {
+          instrumentationHelpersNeeded = true
+          let originalLine: number | undefined
+          if (sourceMapConsumer) {
+            try {
+              const { line: jsLine, character: jsChar } =
+                ts.getLineAndCharacterOfPosition(sourceFile, node.getStart())
+              const originalPos = sourceMapConsumer.originalPositionFor({
+                line: jsLine + 1,
+                column: jsChar,
+              })
+              if (originalPos && originalPos.line)
+                originalLine = originalPos.line
+            } catch {
+              // ignore errors
+            }
+          }
+          return context.factory.createCallExpression(
+            context.factory.createIdentifier('__accumulateLog'),
+            undefined,
+            [
+              context.factory.createStringLiteral(methodName),
+              originalLine !== undefined
+                ? context.factory.createNumericLiteral(originalLine)
+                : context.factory.createIdentifier('undefined'),
+              context.factory.createArrayLiteralExpression(
+                node.arguments
+                  .map((arg) => ts.visitNode(arg, visitor))
+                  .filter((arg): arg is ts.Expression => arg !== undefined),
+                false
+              ),
+            ]
+          )
+        }
+      }
+      // Instrument top-level expressions.
+      if (
+        ts.isExpressionStatement(node) &&
+        node.parent &&
+        ts.isSourceFile(node.parent) &&
+        !(
+          ts.isStringLiteral(node.expression) &&
+          node.expression.text === 'use strict'
+        )
+      ) {
+        instrumentationHelpersNeeded = true
+        let originalLine: number | undefined
+        if (sourceMapConsumer) {
+          try {
+            const { line: jsLine, character: jsChar } =
+              ts.getLineAndCharacterOfPosition(
+                sourceFile,
+                node.expression.getStart()
+              )
+            const originalPos = sourceMapConsumer.originalPositionFor({
+              line: jsLine + 1,
+              column: jsChar,
+            })
+            if (originalPos && originalPos.line) originalLine = originalPos.line
+          } catch {
+            // ignore errors
+          }
+        }
+        return context.factory.createExpressionStatement(
+          context.factory.createCallExpression(
+            context.factory.createIdentifier('__reportResult'),
+            undefined,
+            [
+              ts.visitNode(node.expression, visitor) as ts.Expression,
+              originalLine !== undefined
+                ? context.factory.createNumericLiteral(originalLine)
+                : context.factory.createIdentifier('undefined'),
+              context.factory.createIdentifier('reportEvent'),
+              context.factory.createIdentifier('__flushLogs'),
+            ]
+          )
+        )
+      }
+      return ts.visitEachChild(node, visitor, context)
+    }
+    return (node: ts.SourceFile): ts.SourceFile => {
+      const visited = ts.visitNode(node, visitor)
+      return (visited as ts.SourceFile) || node
+    }
+  }
+  const transformationResult = ts.transform(sourceFile, [transformerFactory])
+  const transformedSourceFile = transformationResult.transformed[0]
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
+  const transformedJsCode = printer.printFile(transformedSourceFile)
+  transformationResult.dispose()
+  return { transformedJsCode, instrumentationHelpersNeeded }
+}
+
+// Helper: Wrap and execute the transformed code.
+async function executeTransformedCode(
+  transformedJsCode: string,
+  instrumentationHelpersNeeded: boolean,
+  reportEvent: (event: ExecutionEvent) => void
+): Promise<void> {
+  const helpers = instrumentationHelpersNeeded
+    ? logAccumulatorHelpersText + '\n' + reportResultHelperText + '\n'
+    : ''
+  const finalCodeToExecute = `
+${helpers}
+// Execution wrapped in try/finally
+try {
+  ${transformedJsCode}
+} finally {
+  if (typeof __flushLogs === 'function') {
+    __flushLogs(reportEvent);
+  }
+}
+`
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+  const executor = new AsyncFunction(
+    'reportEvent',
+    `"use strict";\n${finalCodeToExecute}`
+  )
+  await executor.call(undefined, reportEvent)
+}
+
 self.onmessage = async (e: MessageEvent<{ code: string }>) => {
   const { code } = e.data
   const events: ExecutionEvent[] = []
   let sourceMapConsumer: SourceMapConsumer | null = null
-  let helperLineOffset = 0
 
-  // *** The single function to report events ***
   const reportEvent = (event: ExecutionEvent) => {
     try {
-      let sanitizedData: any
-      if (event.type === 'log' && Array.isArray(event.data)) {
-        // Sanitize each argument in the log data array
-        sanitizedData = event.data.map((arg) => sanitizeForCloning(arg))
-      } else if (event.type === 'result') {
-        // Sanitize the single result value
-        sanitizedData = sanitizeForCloning(event.data)
-      } else {
-        // Fallback for other potential types or unexpected data shapes
-        sanitizedData = sanitizeForCloning(event.data)
-      }
-
-      const sanitizedEvent: ExecutionEvent = {
-        ...event,
-        data: sanitizedData,
-      }
-      // workerDebugLog("Sanitized event:", JSON.stringify(sanitizedEvent));
-      events.push(sanitizedEvent)
-    } catch (sanitizeError) {
-      // If sanitization itself fails (e.g., getter throws), report that
-      workerDebugLog(
-        '!! Worker Error: Failed during event sanitization:',
-        sanitizeError
-      )
+      const sanitizedData =
+        event.type === 'log' && Array.isArray(event.data)
+          ? event.data.map((arg) => sanitizeForCloning(arg))
+          : sanitizeForCloning(event.data)
+      events.push({ ...event, data: sanitizedData })
+    } catch (err) {
+      workerDebugLog('Event sanitization error:', err)
       events.push({
         type: 'log',
         level: 'error',
         line: event.line,
         data: [
-          '[Internal Error: Could not process value for display]',
-          sanitizeError instanceof Error
-            ? sanitizeError.message
-            : String(sanitizeError),
+          '[Internal Error processing event]',
+          err instanceof Error ? err.message : String(err),
         ],
       })
     }
@@ -299,337 +493,45 @@ self.onmessage = async (e: MessageEvent<{ code: string }>) => {
 
   try {
     workerDebugLog('Transpiling TS...')
-    const transpileResult = ts.transpileModule(code, {
-      compilerOptions: {
-        module: ts.ModuleKind.ESNext,
-        target: ts.ScriptTarget.ESNext,
-        inlineSourceMap: true,
-        inlineSources: true,
-        checkJs: false,
-        suppressOutputPathCheck: true,
-        skipLibCheck: true,
-      },
-      reportDiagnostics: true,
-    })
+    const transpile = transpileCode(code)
+    const jsCode = transpile.jsCode
+    sourceMapConsumer = transpile.sourceMapConsumer
 
-    // Handle transpilation diagnostics (report via reportEvent)
-    if (transpileResult.diagnostics && transpileResult.diagnostics.length > 0) {
-      workerDebugLog('Transpilation Errors Found!')
-      transpileResult.diagnostics.forEach((diagnostic) => {
-        /* ... report error via reportEvent ... */
-        const messageText = ts.flattenDiagnosticMessageText(
-          diagnostic.messageText,
-          '\n'
-        )
-        let line: number | undefined
-        let character: number | undefined
-
-        if (diagnostic.file && typeof diagnostic.start === 'number') {
-          const pos = diagnostic.file.getLineAndCharacterOfPosition(
-            diagnostic.start
-          )
-          line = pos.line + 1
-          character = pos.character + 1
-        }
-        reportEvent({
-          type: 'log',
-          level: 'error',
-          line,
-          data: [
-            `TS${diagnostic.code}: ${messageText}${
-              line ? ` (at line ${line})` : ''
-            }${character ? ` (at column ${character})` : ''}`,
-          ],
-        })
-      })
-      postMessage(events)
-      return // Stop
-    }
-
-    const jsCodeWithMap = transpileResult.outputText
-    workerDebugLog('Transpilation OK.')
-
-    // 2. Extract sourcemap and JS code
-    const sourceMapMatch = jsCodeWithMap.match(
-      /\/\/# sourceMappingURL=data:application\/json;base64,(.*)/
-    )
-    let jsCode = jsCodeWithMap
-
-    if (sourceMapMatch?.[1]) {
-      try {
-        /* ... parse source map ... */
-        sourceMapConsumer = new SourceMapConsumer(
-          JSON.parse(atob(sourceMapMatch[1]))
-        )
-        jsCode = jsCodeWithMap.substring(0, sourceMapMatch.index).trimEnd()
-        workerDebugLog('Source map parsed.')
-      } catch (mapError) {
-        /* ... handle map error ... */
-        workerDebugLog('!! Worker Error: Failed to parse source map:', mapError)
-        reportEvent({
-          type: 'log',
-          level: 'warn',
-          data: [
-            'Could not parse source map. Error line numbers may be inaccurate.',
-          ],
-        })
-      }
-    } else {
-      /* ... handle no map ... */
-      workerDebugLog('Source map not found in transpiled output.')
-      reportEvent({
-        type: 'log',
-        level: 'warn',
-        data: ['Source map not found. Error line numbers will be inaccurate.'],
-      })
-    }
-    workerDebugLog(
-      'Base JS Code (before instrumentation):\n---\n',
+    workerDebugLog('Transforming JS...')
+    const { transformedJsCode, instrumentationHelpersNeeded } = transformCode(
       jsCode,
-      '\n---'
+      sourceMapConsumer
     )
-
-    // 3. *** Instrument JS Code (Revised Logic) ***
-    let instrumentedJs = ''
-    let didInstrument = false // Flag if any instrumentation occurred
-    try {
-      workerDebugLog('Parsing generated JS for instrumentation...')
-      const sourceFile = ts.createSourceFile(
-        '__temp_module__.js',
-        jsCode,
-        ts.ScriptTarget.ESNext,
-        true,
-        ts.ScriptKind.JS
-      )
-
-      workerDebugLog('Processing statements...')
-      for (const stmt of sourceFile.statements) {
-        const stmtStartPos = stmt.getStart(sourceFile, false)
-        const stmtEndPos = stmt.getEnd()
-        const originalStmtTextWithTrivia = sourceFile.text.substring(
-          stmt.getFullStart(),
-          stmtEndPos
-        )
-
-        let handled = false // Flag if this statement was instrumented as log/result
-
-        // --- Check if it's an ExpressionStatement ---
-        if (ts.isExpressionStatement(stmt)) {
-          const expr = stmt.expression
-
-          // --- Check if it's a CallExpression like console.log() ---
-          if (ts.isCallExpression(expr)) {
-            const signature = expr.expression
-            let level: string | null = null
-
-            // Check if it's console.log, console.warn, etc.
-            if (
-              ts.isPropertyAccessExpression(signature) &&
-              ts.isIdentifier(signature.expression) &&
-              signature.expression.text === 'console'
-            ) {
-              const methodName = signature.name.text
-              // Check if it's one of the methods we want to capture
-              if (
-                Object.prototype.hasOwnProperty.call(
-                  originalConsole,
-                  methodName
-                ) &&
-                methodName !== 'clear'
-              ) {
-                level = methodName
-              }
-            }
-
-            if (level) {
-              // *** Instrument as a Log Call ***
-              workerDebugLog(`Instrumenting Log Call: console.${level}(...)`)
-              didInstrument = true
-              handled = true
-
-              // Find original TS line number for the *start* of the call expression
-              let originalLine: number | string = "'unknown'"
-              if (sourceMapConsumer) {
-                try {
-                  // Use stmt start for line mapping (more reliable than call expression start sometimes)
-                  const posInJs = ts.getLineAndCharacterOfPosition(
-                    sourceFile,
-                    stmtStartPos
-                  )
-                  const originalPos = sourceMapConsumer.originalPositionFor({
-                    line: posInJs.line + 1,
-                    column: posInJs.character,
-                  })
-                  if (originalPos && originalPos.line !== null) {
-                    originalLine = originalPos.line.toString()
-                  } else {
-                    workerDebugLog(
-                      `Mapping failed for console.${level} at line ${
-                        posInJs.line + 1
-                      }`
-                    )
-                  }
-                } catch (mapErr) {
-                  workerDebugLog('!! Error mapping console call pos:', mapErr)
-                }
-              }
-
-              // Get the text of the arguments array
-              const argsText = expr.arguments
-                .map((arg) => arg.getText(sourceFile))
-                .join(', ')
-
-              const instrumentedStatement = `__reportLog('${level}', ${originalLine}, [${argsText}]);`
-              instrumentedJs += instrumentedStatement + '\n'
-              workerDebugLog(` -> Replaced with: ${instrumentedStatement}`)
-            }
-          }
-
-          // --- If NOT handled as a log call, check if it should be instrumented as a result ---
-          if (
-            !handled &&
-            !(ts.isStringLiteral(expr) && expr.text === 'use strict')
-          ) {
-            // *** Instrument as a Result Expression ***
-            workerDebugLog(
-              `Instrumenting Result Expression: ${expr.getText(sourceFile)}`
-            )
-            didInstrument = true
-            handled = true
-
-            let originalLine: number | string = "'unknown'"
-            if (sourceMapConsumer) {
-              try {
-                const posInJs = ts.getLineAndCharacterOfPosition(
-                  sourceFile,
-                  expr.getStart(sourceFile, false)
-                )
-                const originalPos = sourceMapConsumer.originalPositionFor({
-                  line: posInJs.line + 1,
-                  column: posInJs.character,
-                })
-                if (originalPos && originalPos.line !== null) {
-                  originalLine = originalPos.line.toString()
-                } else {
-                  workerDebugLog(
-                    `Mapping failed for expr at line ${posInJs.line + 1}`
-                  )
-                }
-              } catch (mapErr) {
-                workerDebugLog('!! Error mapping expr pos:', mapErr)
-              }
-            }
-
-            let instrumentedStatement: string
-            if (ts.isAwaitExpression(expr)) {
-              const awaitedExprText = expr.expression.getText(sourceFile)
-              instrumentedStatement = `__reportResult(await (${awaitedExprText}), ${originalLine});`
-            } else {
-              const exprText = expr.getText(sourceFile)
-              instrumentedStatement = `__reportResult((${exprText}), ${originalLine});`
-            }
-            instrumentedJs += instrumentedStatement + '\n'
-            workerDebugLog(` -> Wrapped with: ${instrumentedStatement}`)
-          }
-        } // end if (isExpressionStatement)
-
-        // --- If the statement was not instrumented, append its original text ---
-        if (!handled) {
-          instrumentedJs += originalStmtTextWithTrivia + '\n'
-          if (stmt.kind !== ts.SyntaxKind.EndOfFileToken) {
-            // Avoid logging EOF
-            workerDebugLog(
-              `Keeping statement as is: ${ts.SyntaxKind[stmt.kind]}`
-            )
-          }
-        }
-      } // end for (stmt of sourceFile.statements)
-    } catch (parseError) {
-      workerDebugLog(
-        '!! Worker Error: Failed during JS instrumentation:',
-        parseError
-      )
-      reportEvent({
-        type: 'log',
-        level: 'error',
-        data: [
-          'Internal error during code instrumentation. Execution aborted.',
-        ],
-      })
-      postMessage(events)
-      return // Abort
-    }
-
-    // --- Calculate offset *after* instrumentation loop ---
-    if (didInstrument) {
-      const helperText =
-        reportLogHelperText + '\n' + reportResultHelperText + '\n'
-      // Count newlines accurately
-      helperLineOffset = (helperText.match(/\n/g) || []).length
-      workerDebugLog(`Calculated helper line offset: ${helperLineOffset}`)
-    }
-
-    // Prepend the helper functions ONLY if instrumentation happened
-    // Avoids injecting unused code for simple variable declarations etc.
-    const finalCodeToExecute =
-      (didInstrument
-        ? reportLogHelperText + '\n' + reportResultHelperText + '\n'
-        : '') + instrumentedJs
-
-    workerDebugLog(
-      'Final Instrumented Code for Execution:\n---\n',
-      finalCodeToExecute,
-      '\n---'
+    workerDebugLog('Executing transformed code...')
+    await executeTransformedCode(
+      transformedJsCode,
+      instrumentationHelpersNeeded,
+      reportEvent
     )
-
-    // 4. Execute the Instrumented Code
-    workerDebugLog(`Executing instrumented JS...`)
-
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {}
-    ).constructor
-    const executor = new AsyncFunction(
-      'reportEvent',
-      `"use strict";\n${finalCodeToExecute}`
-    )
-
-    // Execute, passing the dependencies
-    await executor.call(undefined, reportEvent)
-
-    workerDebugLog('Execution finished.')
+    workerDebugLog('Execution finished normally.')
   } catch (error: unknown) {
-    // 5. Report Runtime Errors (using parseErrorStack with sourceMapConsumer)
+    let finalHelperLineOffset = 0
+    if (sourceMapConsumer) {
+      const helperText =
+        logAccumulatorHelpersText + '\n' + reportResultHelperText + '\n'
+      finalHelperLineOffset = (helperText.match(/\n/g) || []).length
+    }
     if (error instanceof Error) {
       const errorInfo = await parseErrorStack(
         error,
         sourceMapConsumer,
-        helperLineOffset
+        finalHelperLineOffset
       )
-      workerDebugLog('Parsed runtime error:', errorInfo)
-
       let displayMessage = errorInfo.message || 'Runtime error'
-      if (errorInfo.line != null) {
-        // Check specifically for valid line number
-        displayMessage = `${displayMessage} (at line ${errorInfo.line})`
-      } else {
-        workerDebugLog(
-          'Runtime error occurred, but no specific line mapping found.'
-        )
-        // Optional: Add a generic hint if line is unknown
-        // displayMessage += " (location unknown)";
-      }
-
-      // Report error - Data here is typically message/stack (strings), usually safe
+      if (errorInfo.line != null)
+        displayMessage += ` (at line ${errorInfo.line})`
       reportEvent({
         type: 'log',
         level: 'error',
         line: errorInfo.line,
-        data: [
-          displayMessage, // The potentially enhanced message
-        ],
+        data: [displayMessage],
       })
     } else {
-      // Handle non-Error throws (sanitization happens in reportEvent)
       reportEvent({
         type: 'log',
         level: 'error',
@@ -637,13 +539,7 @@ self.onmessage = async (e: MessageEvent<{ code: string }>) => {
       })
     }
   } finally {
-    // 6. Clean up
-    workerDebugLog('Execution sequence finished. Posting events.')
-    // 7. Send all collected events back
-    workerDebugLog(
-      'Final events being posted (should be sanitized):',
-      JSON.stringify(events)
-    )
+    workerDebugLog('Posting events.')
     postMessage(events)
   }
 }
@@ -660,15 +556,7 @@ self.addEventListener('unhandledrejection', async (event) => {
   let errorDetails: any = null // Use this for structured (sanitized) data if not Error
 
   if (event.reason instanceof Error) {
-    // Attempt to parse stack for line number, *if* we had a consumer available
-    // NOTE: Getting the correct sourceMapConsumer here is tricky, as this event
-    // is outside the main onmessage flow. For simplicity, we might omit line mapping here.
-    // If needed, you'd have to store the last used consumer globally in the worker.
-    // Let's prioritize just getting a clean message for now.
     errorMessage = event.reason.message
-    // We could try a parseErrorStack here if we stored the consumer, but let's keep it simple:
-    // const errorInfo = await parseErrorStack(event.reason, /* storedConsumer */, /* how to get offset? */);
-    // errorMessage = errorInfo.message; // Potentially add line info if successful
   } else if (typeof sanitizedReason === 'string') {
     errorMessage = sanitizedReason
   } else {
